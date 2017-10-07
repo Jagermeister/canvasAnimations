@@ -1,0 +1,387 @@
+<html>
+<head><title>cells</title></head>
+<body bgcolor="#24AF69">
+	<canvas id="cellsCanvas" width="720" height="720" style="background-color: #F0F8FF; float: left;"></canvas><br/>
+	<canvas id="infoCanvas" width="500" height="600" style="background-color: #f0f8ff; margin: 10px;"></canvas>
+	<script type="text/javascript">
+		'use strict';
+		// Utility
+		function circleCollisionPoint (x, y) {
+			((entity1.radius + entity2.radius) * (entity1.radius + entity2.radius)) >=
+        ((entity1.x - entity2.x) * (entity1.x - entity2.x) + (entity1.y - entity2.y) * (entity1.y - entity2.y))
+		}
+
+		function padLeft (padValue, value, count) {
+			return (Array(count).join(padValue) + value).slice(-1 * count);
+		}
+
+		function getRandomInt(min, max) {
+			min = Math.ceil(min);
+			max = Math.floor(max);
+			return Math.floor(Math.random() * (max - min)) + min;
+		}
+
+		//Classes
+		// Transition attributes for an Entity
+		class EntityTransition {
+			constructor(entity, options) {
+				this.name = "BASE Class";
+				this.entity = entity;
+				this.durationMax = options.duration;
+				this.isRepeating = options.isRepeating;
+				this.isAlternating = options.isAlternating;
+				this.isPlaying = false;
+				this.isCeasing = false;
+				this.isReversed = false;
+				this.duration = 0;
+			}
+			
+			start() {
+				this.duration = 0;
+				this.isPlaying = true;
+			}
+			
+			cease() {
+				this.isCeasing = true;
+			}
+
+			_stop() {
+
+			}
+
+			stop() {
+				this.isPlaying = false;
+				this.isCeasing = false;
+				this._stop();
+			}
+
+			_update() {
+				// Children override this
+			}
+
+			update(delta) {
+				if (this.isPlaying) {
+					this.duration += delta;
+					if (this.duration >= this.durationMax) {
+						if (this.isAlternating) {
+							this.isReversed = !this.isReversed;
+						}
+
+						if ((this.isCeasing && this.isAlternating && !this.isReversed)|| !this.isRepeating) {
+							this.stop();
+						} else {
+							this.start();
+						}
+					} else {
+						this._update(delta);
+					}
+				}
+			}
+		}
+
+		class EntityPulseTransition extends EntityTransition {
+			constructor(entity, options) {
+				super(entity, options);
+				this.name = "EntityPulse";
+				this.growth = options.growth || 8;
+			}
+
+			_update(delta) {
+				this.entity.r += (this.duration / this.durationMax <= 0.50 ? 1 : -1) * delta / this.durationMax * this.growth;
+			}
+
+			_stop() {
+				this.entity.r = this.entity.rInitial;
+			}
+		}
+
+		class EntityPulsePopTransition extends EntityTransition {
+			constructor(entity, options) {
+				super(entity, options);
+				this.name = "EntityPulsePop";
+				this.growth = options.growth || 8;
+			}
+
+			_update() {
+				this.entity.r = this.entity.rInitial + (this.isReversed ? -1 : 1) * this.duration / this.durationMax * this.growth;
+			}
+
+			_stop() {
+				this.entity.r = this.entity.rInitial;
+			}
+		}
+		
+		class EntityArcTransition extends EntityTransition {
+			constructor(entity, options) {
+				super(entity, options);
+				this.name = "Arc";
+			}
+
+			_update() {
+				let completion = this.duration / this.durationMax;
+				if (completion <= 0.50) {
+					this.entity.arcStart = 0;
+					this.entity.arcEnd = completion / 0.5 * 2 * Math.PI;
+				} else if (completion > 0.650){
+					this.entity.arcStart = (completion - 0.5) / 0.5 * 2 * Math.PI;
+					this.entity.arcEnd = 2 * Math.PI;
+				}
+			}
+
+			_stop() {
+				this.entity.arcStart = 0;
+				this.entity.arcEnd = 0;
+			}
+		}
+
+		class EntityArc2Transition extends EntityTransition {
+			constructor(entity, options) {
+				super(entity, options);
+				this.name = "Arc2";
+			}
+
+			_update() {
+				let completion = this.duration / this.durationMax;
+				this.entity.arcEnd = (this.isReversed ? 1 - completion : completion) * 2 * Math.PI;
+				this.entity.arcStart = (this.duration * this.duration) / (this.durationMax * this.durationMax) * 2 * Math.PI;
+			}
+
+			_stop() {
+				this.entity.arcStart = 0;
+				this.entity.arcEnd = 0;
+			}
+		}
+
+		let transitions = [
+			EntityPulseTransition,
+			EntityPulsePopTransition,
+			EntityArcTransition,
+			EntityArc2Transition
+		];
+		// Main entity (ARC)
+		class Entity {
+			constructor(x, y, r) {
+				this.x = x;
+				this.y = y;
+				this.r = r;
+				this.rInitial = r;
+				this.arcStart = 0;
+				this.arcEnd = 0;
+				this.colorIndex = getRandomInt(0, lite.length);
+			}
+
+			isPointCollision(x, y) {
+				return (this.r * this.r >= ((this.x - x) * (this.x - x) + (this.y - y) * (this.y - y)));
+			}
+
+			isTransitioning() {
+				return this.transition.isPlaying;
+			}
+
+			transitionStart() {
+				this.transition.start();
+			}
+
+			transitionCease() {
+				this.transition.cease();
+			}
+
+			update(delta) {
+				if (this.transition) {
+					this.transition.update(delta);
+				}
+			}
+
+			display(ctx) {
+				ctx.beginPath();
+				ctx.arc(this.x, this.y, this.r, 0, 2 * Math.PI);
+				ctx.fillStyle = lite[this.colorIndex];
+				ctx.fill();
+				
+				ctx.strokeStyle = dark[this.colorIndex];
+				ctx.beginPath();
+				ctx.arc(this.x, this.y, this.r, 0, 2 * Math.PI);
+				ctx.lineWidth = 1;
+				ctx.stroke();
+				
+				ctx.beginPath();
+				ctx.arc(this.x, this.y, this.r, this.arcStart, this.arcEnd);
+				ctx.lineWidth = 5;
+				ctx.stroke();
+			}
+		}
+
+		//View
+		var canvas = document.getElementById("cellsCanvas");
+		canvas.tabIndex = 0;
+		canvas.focus();
+		
+		let lite = [
+			"rgb(102,194,165)",
+			"rgb(252,141,98)",
+			"rgb(141,160,203)",
+			"rgb(231,138,195)",
+			"rgb(166,216,84)",
+			"rgb(255,217,47)"
+		];
+
+		let dark = [
+			"rgb(27,158,119)",
+			"rgb(217,95,2)",
+			"rgb(117,112,179)",
+			"rgb(231,41,138)",
+			"rgb(102,166,30)",
+			"rgb(230,171,2)"
+		];
+
+		//TODO: Global canvas bounds
+		var canvas_width = canvas.width;
+		var canvas_height = canvas.height;
+		var canvas_bounds = canvas.getBoundingClientRect();
+		var ctx = canvas.getContext("2d");
+		let canvasInfo = document.getElementById("infoCanvas");
+		var ctx_info = canvasInfo.getContext("2d");
+
+		var cells = [];
+		var keyDownEvents = {};
+		function init() {
+			//Initialize
+			for (let i = 0; i < 55; i++) {
+				cells.push(new Entity(getRandomInt(0,720), getRandomInt(0,720), getRandomInt(20, 55)));
+			}
+
+			keyDownEvents = {
+				80: function() { isPaused = !isPaused; }
+			};
+		}
+
+		//Handle User Input
+		var mouseX = null;
+		var mouseY = null;
+		canvas.addEventListener("mousemove", function(event) {
+			mouseX = event.clientX - canvas_bounds.left;
+			mouseY = event.clientY - canvas_bounds.top;
+		});
+
+        let LEFT_MOUSE_CLICK = 0;
+		canvas.addEventListener("mousedown", function(event) {
+			let clickX = event.clientX - canvas_bounds.left,
+				clickY = event.clientY - canvas_bounds.top;
+			if (event.button === LEFT_MOUSE_CLICK) {
+				for (let i = 0, l = cells.length; i < l; i++) {
+					let c = cells[i];
+					if (c.isPointCollision(clickX, clickY)) {
+						c.colorIndex++;
+						if (c.colorIndex > lite.length - 1) {
+							c.colorIndex = 0;
+						}
+					}
+				}
+			}
+		});
+
+		let mouseOverIndex = null;
+		var canvasInfo_bounds = canvasInfo.getBoundingClientRect();
+		canvasInfo.addEventListener("mousemove", function(event) {
+			mouseX = event.clientX - canvasInfo_bounds.left;
+			mouseY = event.clientY - canvasInfo_bounds.top;
+			mouseOverIndex = null;
+			if (mouseX < 300) {
+				let y = Math.floor((mouseY - 24) / 24);
+				if (y < transitions.length) {
+					mouseOverIndex = y;
+				}
+			}
+		});
+		canvasInfo.addEventListener("mousedown", function(event) {
+			let clickX = event.clientX - canvasInfo_bounds.left,
+				clickY = event.clientY - canvasInfo_bounds.top;
+			if (event.button === LEFT_MOUSE_CLICK) {
+				if (mouseOverIndex !== null) {
+					let c = cells.splice(getRandomInt(0, cells.length), 1)[0];
+					c.transition = new transitions[mouseOverIndex](c, {
+						duration: 1000
+					});
+					c.transitionStart();
+					cells.push(c);
+				}
+			}
+		});
+
+		window.addEventListener("keydown", function(event) {
+			let f = keyDownEvents[event.keyCode.toString()];
+			if (f) { f(); }
+		});
+
+		// Game Life
+		var game_delta = null;
+		var isPaused = false;
+		function update(delta) {
+			if (!isPaused) {
+				for (let i = 0, l = cells.length; i < l; i++) {
+					let c = cells[i];
+					c.update(delta);
+				}
+			}
+
+			game_delta = delta;
+		}
+
+		function display() {
+			ctx.clearRect(0, 0, canvas_width, canvas_height);
+			for (let i = 0, l = cells.length; i < l; i++) {
+				let c = cells[i];
+				c.display(ctx);
+			}
+
+			ctx_info.clearRect(0, 0, 500, 600);
+			ctx_info.strokeStyle = "rgba(0,0,0,0.85)";
+			ctx_info.font = "18px Courier New";
+			strokeCanvasText(ctx_info, "vvv CLICK THESE WORDS vvv", 5, 24, false);
+			ctx_info.font = "12px Courier New";
+			transitions.forEach(function(transition, index) {
+				strokeCanvasConditionalText(ctx_info, transition.name, 10, 48 + index * 24, false,
+					"black", index == mouseOverIndex,"red");
+			});
+
+			ctx_info.strokeStyle = "rgba(0,0,0,0.85)";
+			[	game_delta.toFixed(2).toString() + "ms @ " + (1000/game_delta).toFixed(2).toString() + "fps",
+				"canvas @  " + padLeft("0", canvas_width, 3) + "," + padLeft("0", canvas_height, 3),
+				"mouse  @  " + padLeft("0", mouseX, 3) + "," + padLeft("0", mouseY, 3)
+			].forEach(function(text, index) {
+				strokeCanvasText(ctx_info, text, 495, 12*1.5*(index+1), true);
+			});
+			[	{text: "P = Paused!", condition: isPaused}
+			].forEach(function(entity, index) {
+				strokeCanvasConditionalText(ctx_info, entity.text,
+					400, 500 - 12*1.5*(index+1), false,
+					"#000000", entity.condition, "#FF0000");
+			});
+		}
+
+		function strokeCanvasText(context, text, x, y, alignRight) {
+			let mText = context.measureText(text);
+			if (alignRight) {
+				x -= mText.width;
+			}
+			context.strokeText(text, x, y);
+		}
+
+		function strokeCanvasConditionalText(context, text, x, y, alignRight, style, condition, conditionalStyle) {
+			context.strokeStyle = condition ? conditionalStyle : style;
+			strokeCanvasText(context, text, x, y, alignRight);
+		}
+
+		window.onload = function() {
+			init();
+			var mainloop_updateLast = performance.now();
+			(function mainLoop(nowTime) {
+				update(nowTime - mainloop_updateLast);
+				display();
+				mainloop_updateLast = nowTime;
+				requestAnimationFrame(mainLoop);
+			})(performance.now());
+		}
+	</script>
+</body>
+</html>

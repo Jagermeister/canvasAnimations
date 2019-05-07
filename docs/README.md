@@ -20,3 +20,11 @@ Experiments with animations and attention
 **Interface for clicking transitions**
 
 ![Debug](./Debug.PNG)
+
+
+## Future Features
+- Color smoothing
+- Color blink
+- Fade rest of observations
+- Shake
+- Bounce
